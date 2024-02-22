@@ -1859,11 +1859,10 @@ class Analysis(object):
 
         return ret_val
 
-    def _long_format_to_binary(self):
-        measurements_bin_path = join(self.output, "measurements.bin")
-        measurements_csv_path = join(self.output, "measurements.csv")
-        measurements_bin_shape_path = join(self.output,
-                                           "measurements.bin.shape")
+    def _long_format_to_binary(self, name, name_bin):
+        measurements_bin_path = name_bin
+        measurements_csv_path = name
+        measurements_bin_shape_path = name_bin + '.shape'
 
         if os.path.isfile(measurements_bin_path) and \
                 os.path.isfile(measurements_bin_shape_path) and \
@@ -1926,21 +1925,18 @@ class Analysis(object):
             print("[i] Conversion to binary format done in {:.3}s".format(
                 time.time() - start_time))
 
-    def _read_hamming_weight_data(self):
-        # first make sure the binary file exists
-        self._long_format_to_binary()
-
-        data = np.memmap(join(self.output, "measurements.bin"),
+    def _read_hamming_weight_data(self, name, mode="r"):
+        data = np.memmap(name,
                          dtype=[('block', np.dtype('i8')),
                                 ('group', np.dtype('i2')),
                                 ('value', np.dtype('f8'))],
-                         mode="r")
+                         mode=mode)
         return data
 
-    def skillings_mack_test(self):
+    def skillings_mack_test(self, name):
         """Calculate the p-value of the Skillings-Mack test for the
         Hamming weight data."""
-        data = self._read_hamming_weight_data()
+        data = self._read_hamming_weight_data(name)
         try:
             blocks = data['block']
             groups = data['group']
@@ -1991,8 +1987,17 @@ class Analysis(object):
         if block_values:
             yield block_values
 
-    def _split_data_to_pairwise(self):
-        data = self._read_hamming_weight_data()
+    def _add_value_to_group(self, name, group, diff):
+        data = self._read_hamming_weight_data(name, mode="r+")
+        try:
+            groups = data['group']
+            values = data['value']
+            values[groups == group] += diff
+        finally:
+            del data
+
+    def _split_data_to_pairwise(self, name):
+        data = self._read_hamming_weight_data(name)
         try:
             pair_writers = dict()
 
@@ -2061,7 +2066,7 @@ class Analysis(object):
             for writer in pair_writers.values():
                 writer.close()
 
-        return pair_writers.keys()
+        return [i for i, j in group_counts[-5:]], pair_writers.keys()
 
     def _analyse_weight_pairs(self, pairs):
         out_dir = self.output
@@ -2234,24 +2239,48 @@ class Analysis(object):
                       methods[method], quantile[0], quantile[1],
                       (quantile[1] - quantile[0])/2, quantile[2]))
 
-    def analyse_hamming_weights(self):
-        # make sure the data is converted to binary format first
-        # so that we don't have race conditions later
-        data = self._read_hamming_weight_data()
-        # it's memory mapped so needs to be explicity freed
-        del data
+    def analyse_hamming_weights(self, name=None):
+        if name is None:
+            name = "measurements.csv"
+        name = join(self.output, name)
 
-        skillings_mack_p_value = self.skillings_mack_test()
+        # first make sure the binary file exists
+        name_bin = name.removesuffix('.csv') + ".bin"
+        self._long_format_to_binary(name, name_bin)
+
+        skillings_mack_p_value = self.skillings_mack_test(name_bin)
 
         print("Skillings-Mack test p-value: {0}".format(
             skillings_mack_p_value))
 
-        pairs = self._split_data_to_pairwise()
+        most_common, pairs = self._split_data_to_pairwise(name_bin)
+
+        ns_sm_p_value = None
+        hundred_ps_sm_p_value = None
+        if skillings_mack_p_value > 1e-5:
+            tmp_file = name_bin + ".tmp"
+            shutil.copyfile(name_bin, tmp_file)
+            self._add_value_to_group(tmp_file, most_common[0], 1e-9)
+            ns_sm_p_value = self.skillings_mack_test(tmp_file)
+            print("1ns: {}".format(ns_sm_p_value))
+            os.remove(tmp_file)
+
+            shutil.copyfile(name_bin, tmp_file)
+            self._add_value_to_group(tmp_file, most_common[0], 1e-10)
+            hundred_ps_sm_p_value = self.skillings_mack_test(tmp_file)
+            print("0.1ns: {}".format(hundred_ps_sm_p_value))
+            os.remove(tmp_file)
 
         self._analyse_weight_pairs(pairs)
 
+
         print("Skillings-Mack test p-value: {0}".format(
             skillings_mack_p_value))
+        if ns_sm_p_value is not None:
+            print("Sample large enough to detect 1 ns difference: {}"
+                  .format(ns_sm_p_value < 1e-9))
+            print("Sample large enough to detect 0.1 ns difference: {}"
+                  .format(hundred_ps_sm_p_value < 1e-9))
 
         if skillings_mack_p_value < self.alpha:
             return 1
