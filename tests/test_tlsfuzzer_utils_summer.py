@@ -85,4 +85,5 @@ class TestSummer(unittest.TestCase):
     def test___float__(self):
         i = Summer(0.5)
 
+        self.assertIsInstance(float(i), float)
         self.assertEqual(float(i), 0.5)

@@ -35,9 +35,14 @@ class Summer(object):
         copy += other
         return copy
 
+    def dump(self):
+        print(self.__partials)
+
     def __iadd__(self, other):
         if not isinstance(other, (float, Summer)):
             return NotImplemented
+        if isinstance(other, Summer):
+            return self.update(other.__partials)
         x = other
         i = 0
         for y in self.__partials:
@@ -56,7 +61,7 @@ class Summer(object):
         return self + other
 
     def __float__(self):
-        return sum(self.__partials, 0.0)
+        return float(sum(self.__partials, 0.0))
 
     def __eq__(self, other):
         if not isinstance(other, (float, Summer)):
