@@ -1249,9 +1249,9 @@ class Analysis(object):
                         sign_test_relation = "<"
                     else:
                         sign_test_relation = ">"
-                if not self.summary_only:
-                    print("Sign test interpretation: {} {} {}"
-                          .format(index2, sign_test_relation, index1))
+                    if not self.summary_only:
+                        print("Sign test interpretation: {} {} {}"
+                              .format(index2, sign_test_relation, index1))
                 if self.run_t_test and not self.summary_only:
                     print("Dependent t-test for paired samples {} vs {}: {:.3}"
                           .format(index1, index2, ttest_results[pair]))
